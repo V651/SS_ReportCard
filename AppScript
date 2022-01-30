@@ -1,0 +1,165 @@
+var saveToRootFolder = false
+
+function onOpen() {                                                 //Creates a Menu tab
+  SpreadsheetApp.getUi()
+    .createMenu('Send Report')    
+    .addItem('Send Report', 'exportCurrentSheetAsPDF')   
+    .addToUi()
+}
+
+function drivecheck(){                                              //Function to check root folder exist
+
+var iterfold =0;
+var folderlist = DriveApp.getFolders();
+
+while(folderlist.hasNext()){
+var foldname = folderlist.next()
+if(foldname.getName()=="Report Card"){
+  iterfold =1;
+}
+}
+return iterfold;
+
+}
+
+
+// Function to send mail
+function sendReport(blob, SName, spreadsheet, mailId, pdfFile) {
+
+
+var filename= "Report_Card_"+ SName;
+                                                  
+
+
+  
+  var fileFolder = DriveApp.getFoldersByName("Report Card").next();
+  var files = fileFolder.getFiles();
+  
+  if (!files.hasNext()) 
+  {
+    console.error("Could not open file "+filename);
+    SpreadsheetApp.getUi().showModalDialog('Could not open file');
+    return;
+  }
+
+
+if (pdfFile.getName()==filename)
+{
+  
+
+  var message = {
+    to: mailId,
+    subject: "Report Card",
+    body: "Hi "+SName+",\n\nPlease find the report card attached.\n\nThank you,\n",
+    name: "Your School",
+    attachments: [pdfFile]
+  }
+ 
+  MailApp.sendEmail(message);
+  SpreadsheetApp.getUi().alert('Report Sent to '+mailId);
+  return;
+}
+
+}
+
+function _exportBlob(blob, currentSheet, spreadsheet, destFolderID) {
+  var startRow = 2; // First row of data to process
+  var SName = currentSheet.getRange('D8').getValue()
+  
+  blob = blob.setName("Report_Card_"+ SName)
+
+  
+  var folder = saveToRootFolder ? DriveApp : DriveApp.getFolderById(destFolderID)
+  var pdfFile = folder.createFile(blob)
+  
+  // Display a modal dialog box with custom HtmlService content.
+  // const htmlOutput = HtmlService
+  //   .createHtmlOutput('<p>Click to open <a href="' + pdfFile.getUrl() + '" target="_blank">' + fileName + '</a></p>')
+  //   .setWidth(300)
+  //   .setHeight(80)
+  // 
+
+  //currentSheet.getRange(startRow , 4).setValue(pdfFile.getUrl()); //write file loc to a cell
+  var mailId = currentSheet.getRange('C10').getValue()
+  Logger.log(mailId)
+  if (mailId==''){
+    SpreadsheetApp.getUi().alert('Please enter Email Address')
+    return;
+  }
+
+  sendReport(blob, SName, spreadsheet, mailId,pdfFile)
+
+}
+
+function _getAsBlob(url, sheet, range) {
+  var rangeParam = ''
+  var sheetParam = ''
+  if (range) {
+    rangeParam =
+      '&r1=' + (range.getRow() - 1)
+      + '&r2=' + range.getLastRow()
+      + '&c1=' + (range.getColumn() - 1)
+      + '&c2=' + range.getLastColumn()
+  }
+  if (sheet) {
+    sheetParam = '&gid=' + sheet.getSheetId()
+  }
+  // A credit to https://gist.github.com/Spencer-Easton/78f9867a691e549c9c70
+  // these parameters are reverse-engineered (not officially documented by Google)
+  // they may break overtime.
+  var exportUrl = url.replace(/\/edit.*$/, '')
+      + '/export?exportFormat=pdf&format=pdf'
+      + '&size=LETTER'
+      + '&portrait=true'
+      + '&fitw=true'       
+      + '&top_margin=0.75'              
+      + '&bottom_margin=0.75'          
+      + '&left_margin=0.7'             
+      + '&right_margin=0.7'           
+      + '&sheetnames=false&printtitle=false'
+      + '&pagenum=UNDEFINED' // change it to CENTER to print page numbers
+      + '&gridlines=true'
+      + '&fzr=FALSE'      
+      + sheetParam
+      + rangeParam
+      
+  Logger.log('exportUrl=' + exportUrl)
+  var response
+  var i = 0
+  for (; i < 5; i += 1) {
+    response = UrlFetchApp.fetch(exportUrl, {
+      muteHttpExceptions: true,
+      headers: { 
+        Authorization: 'Bearer ' +  ScriptApp.getOAuthToken(),
+      },
+    })
+    if (response.getResponseCode() === 429) {
+      // printing too fast, retrying
+      Utilities.sleep(3000)
+    } else {
+      break
+    }
+  }
+  
+  if (i === 5) {
+    throw new Error('Printing failed. Too many sheets to print.')
+  }
+  
+  return response.getBlob()
+}
+
+function exportCurrentSheetAsPDF() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet()
+  var currentSheet = SpreadsheetApp.getActiveSheet()
+
+  var iterfold = drivecheck();
+  if(iterfold==0){
+  DriveApp.createFolder("Report Card") 
+}
+
+  var destFolderID= DriveApp.getFoldersByName("Report Card").next().getId()
+  
+  var blob = _getAsBlob(spreadsheet.getUrl(), currentSheet)
+  _exportBlob(blob, currentSheet, spreadsheet,destFolderID)
+}
+
